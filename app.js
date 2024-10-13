@@ -1,61 +1,187 @@
-const express = require("express");
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const { marked } = require('marked');
+
 const app = express();
-const port = process.env.PORT || 3001;
 
-app.get("/", (req, res) => res.type('html').send(html));
+// Serve static files like favicon.ico from the 'public' directory
+app.use(express.static(path.join(__dirname, 'public')));
+app.set('views', path.join(__dirname, 'views'));
+// Set EJS as the templating engine
+app.set('view engine', 'ejs');
+app.use(express.static(path.join(__dirname, 'public')));
 
-const server = app.listen(port, () => console.log(`Example app listening on port ${port}!`));
+function readPosts() {
+    const postsDir = path.join(__dirname, 'content', 'posts');
+    const files = fs.readdirSync(postsDir);
+    const posts = files.map(file => {
+        const filePath = path.join(postsDir, file);
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const [metaData, body] = content.split('---').filter(Boolean);
+        return {
+            title: metaData.match(/title:\s*(.*)/)[1],
+            date: metaData.match(/date:\s*(.*)/)[1],
+            content: marked(body.trim()),
+            filename: file
+        };
+    });
+    return posts;
+}
 
-server.keepAliveTimeout = 120 * 1000;
-server.headersTimeout = 120 * 1000;
-
-const html = `
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Hello from Render!</title>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
-    <script>
-      setTimeout(() => {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          disableForReducedMotion: true
+// Helper function to parse front matter
+function parseMarkdownFrontMatter(content) {
+    const frontMatterRegex = /^---\n([\s\S]*?)\n---/;
+    const match = content.match(frontMatterRegex);
+    if (match) {
+        const frontMatter = match[1];
+        const metadata = {};
+        frontMatter.split('\n').forEach(line => {
+            const [key, ...value] = line.split(':');
+            if (key) {
+                metadata[key.trim()] = value.join(':').trim();
+            }
         });
-      }, 500);
-    </script>
-    <style>
-      @import url("https://p.typekit.net/p.css?s=1&k=vnd5zic&ht=tk&f=39475.39476.39477.39478.39479.39480.39481.39482&a=18673890&app=typekit&e=css");
-      @font-face {
-        font-family: "neo-sans";
-        src: url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("woff2"), url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("woff"), url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/a?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("opentype");
-        font-style: normal;
-        font-weight: 700;
-      }
-      html {
-        font-family: neo-sans;
-        font-weight: 700;
-        font-size: calc(62rem / 16);
-      }
-      body {
-        background: white;
-      }
-      section {
-        border-radius: 1em;
-        padding: 1em;
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        margin-right: -50%;
-        transform: translate(-50%, -50%);
-      }
-    </style>
-  </head>
-  <body>
-    <section>
-      Hello from Render!
-    </section>
-  </body>
-</html>
-`
+        // Remove the front matter from the original content
+        const contentWithoutFrontMatter = content.replace(frontMatterRegex, '').trim();
+        return { metadata, content: contentWithoutFrontMatter };
+    }
+    return { metadata: {}, content };
+}
+
+// Route for serving the posts page
+// Route for serving the posts page
+app.get('/posts', (req, res) => {
+    const postsDir = path.join(__dirname, 'content', 'posts');
+
+    // Read the posts directory
+    fs.readdir(postsDir, (err, files) => {
+        if (err) {
+            return res.status(500).send('Error reading posts directory');
+        }
+
+        // Filter Markdown files and extract metadata from the content
+        const posts = files.filter(file => file.endsWith('.md')).map(file => {
+            const filePath = path.join(postsDir, file);
+            const data = fs.readFileSync(filePath, 'utf8');
+            const { metadata } = parseMarkdownFrontMatter(data);
+            const title = metadata.title || file.replace('.md', '');
+            const date = new Date(metadata.date).toLocaleString(); // Format date
+            return {
+                date,
+                title,
+                url: `/posts/${file.replace('.md', '')}`,
+                filename: file.replace('.md', '') // Remove the .md extension for the link
+            };
+        });
+
+        // Sort posts by date, newest first
+        posts.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        // Create the content for the posts
+        const postsContent = `
+            <h1>Posts</h1>
+            <ul>
+                ${posts.map(post => `
+                    <li>
+                        <a href="${post.url}">${post.title}</a> <small>(${post.date})</small>
+                    </li>
+                `).join('')}
+            </ul>
+        `;
+
+        // Render the layout with the posts content
+        res.render('layout', {
+            title: 'Posts',
+            content: postsContent // Pass the posts content here
+        });
+    });
+});
+
+// Individual post route
+app.get('/posts/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path.join(__dirname, 'content', 'posts', filename + '.md'); // Update path to include 'content/posts'
+    
+    // Check if the file exists before reading
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send('Post not found'); // Handle file not found error
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const [metaData, body] = content.split('---').filter(Boolean);
+    const title = metaData.match(/title:\s*(.*)/)[1];
+    const htmlContent = marked(body.trim());
+    res.render('layout', { title, content: htmlContent });
+});
+
+
+// Route for individual post pages
+app.get('/posts/:post', (req, res) => {
+    const postFile = path.join(__dirname, 'content', 'posts', `${req.params.post}.md`);
+
+    // Read the Markdown file for the individual post
+    fs.readFile(postFile, 'utf8', (err, data) => {
+        if (err) {
+            return res.status(404).render('layout', { title: '404', content: 'Post not found' });
+        }
+
+        // Extract metadata and content from the Markdown file
+        const { metadata, content } = parseMarkdownFrontMatter(data);
+        
+        // Convert the content to HTML
+        const htmlContent = marked(content);
+
+        // Render the individual post page
+        const title = metadata.title || req.params.post.replace(/-/g, ' ');
+        res.render('layout', {
+            title,
+            content: htmlContent
+        });
+    });
+});
+
+// Search route
+app.get('/search', (req, res) => {
+    const query = req.query.query.toLowerCase();
+    const posts = readPosts();
+    const filteredPosts = posts.filter(post => 
+        post.title.toLowerCase().includes(query) || 
+        post.content.toLowerCase().includes(query)
+    );
+
+    const content = `
+        <h2>Search Results for "${query}"</h2>
+        <ul>
+            ${filteredPosts.length > 0 ? filteredPosts.map(post => `<li><a href="/posts/${post.filename}">${post.title}</a> - ${new Date(post.date).toLocaleDateString()}</li>`).join('') : '<li>No results found</li>'}
+        </ul>
+    `;
+    res.render('layout', { title: 'Search Results', content });
+});
+
+// Route for serving pages based on Markdown files
+app.get('/:page?', (req, res) => {
+    const page = req.params.page || 'index';
+    const filePath = path.join(__dirname, 'content', `${page}.md`);
+    
+    // Read the Markdown file
+    fs.readFile(filePath, 'utf8', (err, data) => {
+        if (err) {
+            return res.status(404).render('layout', { title: '404', content: 'Page not found' });
+        }
+
+        // Extract metadata and content from the Markdown file
+        const { content } = parseMarkdownFrontMatter(data);
+        
+        // Convert the content to HTML
+        const htmlContent = marked(content);
+        
+        // Render the EJS template and pass the content
+        res.render('layout', { title: page.charAt(0).toUpperCase() + page.slice(1), content: htmlContent });
+    });
+});
+
+// Start the server
+app.listen(3000, () => {
+    console.log('Server is running on http://localhost:3000');
+});

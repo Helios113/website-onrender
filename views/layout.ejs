@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= title %></title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/styles.css">
+
+   
+</head>
+<body>
+    <header>
+       <h3>My Blog</h3>
+    </header>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/about">About</a>
+        <a href="/projects">Projects</a>
+        <a href="/posts">Posts</a> <!-- Added link to the posts page -->
+        <a href="/contact">Contact</a>
+    </nav>
+
+    <main>
+        <%- content %> <!-- Inject content as raw HTML -->
+    </main>
+
+    <footer>
+        <p>&copy; 2024 Your Suckless Site</p>
+    </footer>
+</body>
+</html>
